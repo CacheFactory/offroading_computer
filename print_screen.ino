@@ -18,7 +18,7 @@ void printScreen(String alt, String temp, String gyroX, String gyroY, String hea
   String line4 = "Roll: ";
   line4.concat(gyroY); 
   line4.concat("  "); 
-  
+
   lcd.setCursor(0,0);
   lcd.print(line1);
   lcd.setCursor(0,1);

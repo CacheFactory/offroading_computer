@@ -24,19 +24,19 @@ LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);  // Set the LCD I
 float gyroAngleY = 0;
 float gyroAngleX = 0;
 
-String altitude ;
-String temperature;
-String gyroX;
-String gyroY;
-String heading ;
-String acceleration;
-String outsideTemp;
+//String altitude ;
+//String temperature;
+//String gyroX;
+//String gyroY;
+//String heading ;
+//String acceleration;
+//String outsideTemp;
 
 int altCurrent;
 
 unsigned long timer;
 
-float outsideTempFloat ;
+float outsideTempCelsius = 0;
 
 float x_angle = 0;
 float y_angle = 0;
@@ -55,7 +55,7 @@ void setup(void)
   
   lcd.begin(20,4); 
   
-  printWelcomeMessage();
+  //printWelcomeMessage();
   
   gyro.enableAutoRange(true);
   gyro.begin();
@@ -81,19 +81,17 @@ void setup(void)
 
 
 void loop(void) 
-{
+{  
   timer = micros();
-  altitude = getAltitude();
-  temperature = getTemperature();
-  gyroX = getGyroX();
-  gyroY = getGyroY();
-  heading = getCompass();
-  acceleration = getAcceleration();
-  outsideTemp = getOutsideTemp();
-  Serial.println(digitalRead(4));
+  String altitude = getAltitude();
+  String temperature = getTemperature();
+  String gyroX = getGyroX();
+  String gyroY = getGyroY();
+  String heading = getCompass();
+  String acceleration = getAcceleration();
+  String outsideTemp = getOutsideTemp();
+  Serial.println(gyroX);
   if (digitalRead(4) == HIGH){
-//    xOffset = x_angle * -1;
-//    yOffset = y_angle * -1;
     altAdjustment = 230 - altCurrent;
     altitudeRA.clear();
     
@@ -104,6 +102,7 @@ void loop(void)
   }
   
   timer = micros(); 
+  delay(10);
 }
 
 
@@ -113,8 +112,8 @@ String getAltitude(void)
   bmp.getEvent(&bmpEvent);
   
   float seaLevelPressure = SENSORS_PRESSURE_SEALEVELHPA;
-  float altitudeInFeet = bmp.pressureToAltitude(seaLevelPressure, bmpEvent.pressure);
-
+  float altitudeInFeet = bmp.pressureToAltitude(seaLevelPressure, bmpEvent.pressure, outsideTempCelsius);
+  
   altitudeInFeet = (altitudeInFeet* 3.28) + altAdjustment ;
 
   altCurrent = altitudeInFeet;
@@ -163,15 +162,17 @@ String getOutsideTemp(void)
   }
   Tc_100 = (6 * TReading) + TReading / 4;    // multiply by (100 * 0.0625) or 6.25
   
-  float outsideTempFloatTEST = Tc_100;
-  outsideTempFloatTEST = (outsideTempFloatTEST / 100 * 2) + 32;
+  float outsideTemp = Tc_100;
+  outsideTemp = (outsideTemp / 100);
+  outsideTempCelsius = outsideTemp; 
+  outsideTemp = (outsideTemp * 2) + 32;
   
   ds.reset();
   ds.select(outsideTempAddr);
   ds.write(0x44,1);        
 
   char outsideTempString[4];
-  dtostrf(outsideTempFloatTEST, 3,1, outsideTempString);
+  dtostrf(outsideTemp, 3,1, outsideTempString);
   
   return outsideTempString;
 }
@@ -248,7 +249,6 @@ String getAcceleration(void)
   dtostrf( accelerationRA.getStandardDeviation() * 100, 4,0,accelerationString);
   return accelerationString;
 }
-
 
 
 
