@@ -14,23 +14,11 @@ Adafruit_L3GD20_Unified gyro = Adafruit_L3GD20_Unified(20);
 Adafruit_LSM303_Mag_Unified mag = Adafruit_LSM303_Mag_Unified(12345);
 Adafruit_LSM303_Accel_Unified accel = Adafruit_LSM303_Accel_Unified(54321);
 
-// DS18S20 Temperature chip i/o
-OneWire ds(2);  // on pin 10
+OneWire ds(2); // DS18S20 Temperature chip i/o
 
 byte outsideTempAddr[8];
 
-LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);  // Set the LCD I2C address
-
-float gyroAngleY = 0;
-float gyroAngleX = 0;
-
-//String altitude ;
-//String temperature;
-//String gyroX;
-//String gyroY;
-//String heading ;
-//String acceleration;
-//String outsideTemp;
+LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
 
 int altCurrent;
 
@@ -38,8 +26,8 @@ unsigned long timer;
 
 float outsideTempCelsius = 0;
 
-float x_angle = 0;
-float y_angle = 0;
+float xAngle = 0;
+float yAngle = 0;
 float yOffset = 0;
 float xOffset = 0;
 
@@ -68,7 +56,6 @@ void setup(void)
   accel.begin();
   
   if ( !ds.search(outsideTempAddr)) {
-      Serial.print("No more addresses.\n");
       ds.reset_search();
   }
 
@@ -90,10 +77,16 @@ void loop(void)
   String heading = getCompass();
   String acceleration = getAcceleration();
   String outsideTemp = getOutsideTemp();
-  Serial.println(gyroX);
-  if (digitalRead(4) == HIGH){
-    altAdjustment = 230 - altCurrent;
+  
+  if (digitalRead(4) == HIGH){ 
+    lcd.clear();
+    delay(1000); //to allow button to be unpressed
+    getGyroX();
+    getGyroY();// get new values after button press vibrations
+    altAdjustment = 230 - altCurrent; //230 ft for my home's altitude
     altitudeRA.clear();
+    yOffset = -yAngle;
+    xOffset = -xAngle;
     
   }
   if(timer % 5 == 0)
@@ -113,7 +106,6 @@ String getAltitude(void)
   
   float seaLevelPressure = SENSORS_PRESSURE_SEALEVELHPA;
   float altitudeInFeet = bmp.pressureToAltitude(seaLevelPressure, bmpEvent.pressure, outsideTempCelsius);
-  
   altitudeInFeet = (altitudeInFeet* 3.28) + altAdjustment ;
 
   altCurrent = altitudeInFeet;
@@ -155,12 +147,12 @@ String getOutsideTemp(void)
   LowByte = outsideTempData[0];
   HighByte = outsideTempData[1];
   TReading = (HighByte << 8) + LowByte;
-  SignBit = TReading & 0x8000;  // test most sig bit
+  SignBit = TReading & 0x8000;  
   if (SignBit) // negative
   {
     TReading = (TReading ^ 0xffff) + 1; // 2's comp
   }
-  Tc_100 = (6 * TReading) + TReading / 4;    // multiply by (100 * 0.0625) or 6.25
+  Tc_100 = (6 * TReading) + TReading / 4;
   
   float outsideTemp = Tc_100;
   outsideTemp = (outsideTemp / 100);
@@ -190,11 +182,11 @@ String getGyroX(void)
   
   int loopTime = ((micros() - timer));
   
-  x_angle = kalmanCalculate(accelX, gyroValueX, loopTime, x_angle);
-  
+  xAngle = kalmanCalculate(accelX, gyroValueX, loopTime, xAngle);
+  xAngle += xOffset;
   
   char gyroXString[4];
-  dtostrf((x_angle * -10), 3,1, gyroXString);
+  dtostrf(xAngle * -10 , 3,1, gyroXString);
   
   return gyroXString;
 }
@@ -211,10 +203,10 @@ String getGyroY(void)
   
   int loopTime = ((micros() - timer));
   
-  y_angle = kalmanCalculate(accelY, gyroValueY, loopTime, y_angle);
-  y_angle += yOffset;
+  yAngle = kalmanCalculate(accelY, gyroValueY, loopTime, yAngle);
+  yAngle += yOffset;
   char gyroYString[4];
-  dtostrf(y_angle * 10, 3,1, gyroYString);
+  dtostrf(yAngle * 10, 3,1, gyroYString);
   return gyroYString;
 }
 
@@ -225,10 +217,9 @@ String getCompass(void)
 
   float Pi = 3.14159;
   
-  // Calculate the angle of the vector y,x
   float heading = (atan2(magEvent.magnetic.y,magEvent.magnetic.x) * 180) / Pi;
   heading = heading + 90 + 14;
-  // Normalize to 0-360
+  
   if (heading < 0)
   {
     heading = 360 + heading;
