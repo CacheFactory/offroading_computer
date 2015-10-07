@@ -8,11 +8,15 @@
 #include <LiquidCrystal_I2C.h>
 #include <RunningAverageEA.h>
 #include <OneWire.h>
+#include <avr/eeprom.h>
+#include <math.h>   
    
 Adafruit_BMP085_Unified bmp = Adafruit_BMP085_Unified(10085);
 Adafruit_L3GD20_Unified gyro = Adafruit_L3GD20_Unified(20);
 Adafruit_LSM303_Mag_Unified mag = Adafruit_LSM303_Mag_Unified(12345);
 Adafruit_LSM303_Accel_Unified accel = Adafruit_LSM303_Accel_Unified(54321);
+
+#define ALT_ADJUSTMENT_ADDRESS 3
 
 OneWire ds(2); // DS18S20 Temperature chip i/o
 
@@ -20,21 +24,24 @@ byte outsideTempAddr[8];
 
 LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
 
-int altCurrent;
-
 unsigned long timer;
 
 float outsideTempCelsius = 0;
 
 float xAngle = 0;
 float yAngle = 0;
-float yOffset = 0;
-float xOffset = 0;
+int yOffset = 0;
+int xOffset = 10;
+float yAngleRaw = 0;
+float xAngleRaw = 0;
 
-int altAdjustment = 0;
+float altAdjustment = 0;
 
-RunningAverageEA altitudeRA(100);
+RunningAverageEA altitudeRA(30);
 RunningAverageEA accelerationRA(30);
+RunningAverageEA pitchRA(10);
+RunningAverageEA rollRA(10); //more resposive gyros
+
 
 
 void setup(void) 
@@ -62,7 +69,8 @@ void setup(void)
   ds.reset();
   ds.select(outsideTempAddr);
   ds.write(0x44,1);         // start conversion, with parasite power on at the end
-  
+ 
+  altAdjustment = eeprom_read_dword((uint32_t *) ALT_ADJUSTMENT_ADDRESS ); 
 }
 
 
@@ -83,37 +91,65 @@ void loop(void)
     delay(1000); //to allow button to be unpressed
     getGyroX();
     getGyroY();// get new values after button press vibrations
-    altAdjustment = 230 - altCurrent; //230 ft for my home's altitude
+    altAdjustment = -getFloatAltitude();
     altitudeRA.clear();
-    yOffset = -yAngle;
-    xOffset = -xAngle;
+//    yOffset = -yAngle;
+//    xOffset = -xAngle;
     
+    delay(1000); //to allow button to be unpressed
+    
+    if (digitalRead(4) == HIGH){ 
+     addAltitude();
+    }
+    
+    altitudeRA.clear();
+    eeprom_write_dword((uint32_t *) ALT_ADJUSTMENT_ADDRESS, altAdjustment );
   }
+  
   if(timer % 5 == 0)
   {
     printScreen(altitude, temperature, gyroX, gyroY, heading, acceleration, outsideTemp);
   }
   
   timer = micros(); 
-  delay(10);
+  //delay(10);
 }
 
+void addAltitude(void) { 
+  while (digitalRead(4) == HIGH){ 
+    altAdjustment += 100;
+    
+    float alt = getFloatAltitude();
+     
+    char altitudeString[4];
+    
+    dtostrf( alt + altAdjustment ,4,0,altitudeString);
+
+    printScreen(altitudeString, "-", "-", "-", "-", "-", "-");
+    delay(300);
+  }
+}
 
 String getAltitude(void)
+{
+  float altitudeInFeet = getFloatAltitude();
+  int temp = altitudeInFeet + altAdjustment;
+  altitudeRA.addValue(temp);
+  
+  char altitudeString[10];
+  dtostrf(altitudeRA.getAverage(),4,0,altitudeString);
+  return altitudeString;
+}
+
+float getFloatAltitude(void)
 {
   sensors_event_t bmpEvent;
   bmp.getEvent(&bmpEvent);
   
   float seaLevelPressure = SENSORS_PRESSURE_SEALEVELHPA;
   float altitudeInFeet = bmp.pressureToAltitude(seaLevelPressure, bmpEvent.pressure, outsideTempCelsius);
-  altitudeInFeet = (altitudeInFeet* 3.28) + altAdjustment ;
-
-  altCurrent = altitudeInFeet;
-  altitudeRA.addValue(altitudeInFeet);
-  
-  char altitudeString[4];
-  dtostrf(altitudeRA.getAverage(),4,0,altitudeString);
-  return altitudeString;
+  altitudeInFeet = (altitudeInFeet * 3.28) ;
+  return altitudeInFeet;
 }
 
 String getTemperature(void)
@@ -164,12 +200,12 @@ String getOutsideTemp(void)
   ds.write(0x44,1);        
 
   char outsideTempString[4];
-  dtostrf(outsideTemp, 3,1, outsideTempString);
+  dtostrf(outsideTemp, 3, 1, outsideTempString);
   
   return outsideTempString;
 }
 
-String getGyroX(void)
+String getGyroX(void)// Pitch
 {
   
   sensors_event_t gyroEvent; 
@@ -177,36 +213,56 @@ String getGyroX(void)
   
   sensors_event_t acclEvent; 
   accel.getEvent(&acclEvent);
-  float accelX = acclEvent.acceleration.y ;
-  float gyroValueX = gyroEvent.gyro.x;
+
   
-  int loopTime = ((micros() - timer));
+  float accZ=float(acclEvent.acceleration.z) * 0.01; 
+  float accY=float(acclEvent.acceleration.y) * 0.01;
+  float accelX = atan2(accY,accZ);
+  
+  float gyroValueX = float(gyroEvent.gyro.x) * 0.5;
+  
+  int loopTime = (micros() - timer);
   
   xAngle = kalmanCalculate(accelX, gyroValueX, loopTime, xAngle);
-  xAngle += xOffset;
   
+  //xAngle = Complementary2(accelX, gyroValueX, loopTime);
+  xAngle = (xAngle * -60) - 15; 
+  xAngleRaw = xAngle;
+  xAngle += xOffset;
+
+  pitchRA.addValue(xAngle);
   char gyroXString[4];
-  dtostrf(xAngle * -10 , 3,1, gyroXString);
+  dtostrf(pitchRA.getAverage() , 4,0, gyroXString);
+  
   
   return gyroXString;
 }
 
-String getGyroY(void)
+String getGyroY(void) // Roll
 {
   sensors_event_t gyroEvent; 
   gyro.getEvent(&gyroEvent); 
   
   sensors_event_t acclEvent; 
   accel.getEvent(&acclEvent);
-  float accelY = acclEvent.acceleration.x ;
-  float gyroValueY = gyroEvent.gyro.y;
+  float accZ=float(acclEvent.acceleration.z) * 0.01; 
+  float accX=float(acclEvent.acceleration.x) * 0.01;
+  float accelY = atan2(accX,accZ);
   
-  int loopTime = ((micros() - timer));
+  float gyroValueY = float(gyroEvent.gyro.y) * 0.5;
+  
+  int loopTime = (micros() - timer);
   
   yAngle = kalmanCalculate(accelY, gyroValueY, loopTime, yAngle);
+ 
+  yAngle = yAngle * 60;
+  yAngleRaw = yAngle;
   yAngle += yOffset;
+  
+  rollRA.addValue(yAngle);
+  
   char gyroYString[4];
-  dtostrf(yAngle * 10, 3,1, gyroYString);
+  dtostrf(rollRA.getAverage(), 4,0, gyroYString);
   return gyroYString;
 }
 
@@ -233,14 +289,11 @@ String getAcceleration(void)
 {
   sensors_event_t acclEvent; 
   accel.getEvent(&acclEvent);
-  float value =   abs( acclEvent.acceleration.y  ) ;
+  float value =   pow(abs( acclEvent.acceleration.y  ), 2.5);
   accelerationRA.addValue(value);
 
   char accelerationString[4];
   dtostrf( accelerationRA.getStandardDeviation() * 100, 4,0,accelerationString);
   return accelerationString;
 }
-
-
-
 

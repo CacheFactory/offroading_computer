@@ -1,8 +1,8 @@
 // KasBot V1 - Kalman filter module
 
-float Q_angle  =  0.01; //0.001
-float Q_gyro   =  0.0003;  //0.003
-float R_angle  =  0.01;  //0.03
+float Q_angle  =  0.001; //0.001
+float Q_gyro   =  0.003;  //0.003
+float R_angle  =  0.03;  //0.03
 
 float x_bias = 0;
 float P_00 = 0, P_01 = 0, P_10 = 0, P_11 = 0;
@@ -37,3 +37,6 @@ float kalmanCalculate(float newAngle, float newRate,int looptime, float previous
   
   return previousAngle;
 }
+
+
+

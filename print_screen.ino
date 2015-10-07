@@ -10,14 +10,11 @@ void printScreen(String alt, String temp, String gyroX, String gyroY, String hea
   line2.concat(outsideTemp);
   line2.concat(" Bump:");
   line2.concat(acceleration);
-  
   String line3 = "Pitch:";
   line3.concat(gyroX);
-  line3.concat("  "); 
   
   String line4 = "Roll: ";
   line4.concat(gyroY); 
-  line4.concat("  "); 
 
   lcd.setCursor(0,0);
   lcd.print(line1);
@@ -27,4 +24,5 @@ void printScreen(String alt, String temp, String gyroX, String gyroY, String hea
   lcd.print(line3);
   lcd.setCursor(0,3);
   lcd.print(line4);
+  
 }
