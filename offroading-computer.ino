@@ -28,12 +28,11 @@ unsigned long timer;
 
 float outsideTempCelsius = 0;
 
+float GYRO_SENSITIVITY = 0.7;
 float xAngle = 0;
 float yAngle = 0;
 int yOffset = 0;
 int xOffset = 10;
-float yAngleRaw = 0;
-float xAngleRaw = 0;
 
 float altAdjustment = 0;
 
@@ -80,8 +79,8 @@ void loop(void)
   timer = micros();
   String altitude = getAltitude();
   String temperature = getTemperature();
-  String gyroX = getGyroX();
-  String gyroY = getGyroY();
+  String gyroX = getGyroPitch();
+  String gyroY = getGyroRoll();
   String heading = getCompass();
   String acceleration = getAcceleration();
   String outsideTemp = getOutsideTemp();
@@ -89,12 +88,8 @@ void loop(void)
   if (digitalRead(4) == HIGH){ 
     lcd.clear();
     delay(1000); //to allow button to be unpressed
-    getGyroX();
-    getGyroY();// get new values after button press vibrations
     altAdjustment = -getFloatAltitude();
     altitudeRA.clear();
-//    yOffset = -yAngle;
-//    xOffset = -xAngle;
     
     delay(1000); //to allow button to be unpressed
     
@@ -112,7 +107,6 @@ void loop(void)
   }
   
   timer = micros(); 
-  //delay(10);
 }
 
 void addAltitude(void) { 
@@ -205,7 +199,10 @@ String getOutsideTemp(void)
   return outsideTempString;
 }
 
-String getGyroX(void)// Pitch
+float smoothGyroX;
+float smoothAccelX;
+
+String getGyroPitch(void)
 {
   
   sensors_event_t gyroEvent; 
@@ -221,14 +218,14 @@ String getGyroX(void)// Pitch
   
   float gyroValueX = float(gyroEvent.gyro.x) * 0.5;
   
+  smoothAccelX = gyroSmooth(accelX, GYRO_SENSITIVITY , smoothAccelX);
+  smoothGyroX = gyroSmooth(gyroValueX, GYRO_SENSITIVITY, smoothGyroX);
+  
   int loopTime = (micros() - timer);
   
-  xAngle = kalmanCalculate(accelX, gyroValueX, loopTime, xAngle);
+  xAngle = kalmanCalculate(smoothAccelX, smoothGyroX, loopTime, xAngle);
   
-  //xAngle = Complementary2(accelX, gyroValueX, loopTime);
-  xAngle = (xAngle * -60) - 15; 
-  xAngleRaw = xAngle;
-  xAngle += xOffset;
+  xAngle = (xAngle * -60) - 5; 
 
   pitchRA.addValue(xAngle);
   char gyroXString[4];
@@ -238,27 +235,31 @@ String getGyroX(void)// Pitch
   return gyroXString;
 }
 
-String getGyroY(void) // Roll
+
+float smoothGyroY;
+float smoothAccelY;
+
+String getGyroRoll(void)
 {
   sensors_event_t gyroEvent; 
   gyro.getEvent(&gyroEvent); 
   
   sensors_event_t acclEvent; 
   accel.getEvent(&acclEvent);
-  float accZ=float(acclEvent.acceleration.z) * 0.01; 
-  float accX=float(acclEvent.acceleration.x) * 0.01;
+  float accZ = float(acclEvent.acceleration.z) * 0.01; 
+  float accX = float(acclEvent.acceleration.x) * 0.01;
   float accelY = atan2(accX,accZ);
   
   float gyroValueY = float(gyroEvent.gyro.y) * 0.5;
   
+  smoothAccelY = gyroSmooth(accelY, GYRO_SENSITIVITY , smoothAccelY);
+  smoothGyroY = gyroSmooth(gyroValueY, GYRO_SENSITIVITY, smoothGyroY);
+   
   int loopTime = (micros() - timer);
   
-  yAngle = kalmanCalculate(accelY, gyroValueY, loopTime, yAngle);
+  yAngle = kalmanCalculate(smoothAccelY, smoothGyroY, loopTime, yAngle);
  
   yAngle = yAngle * 60;
-  yAngleRaw = yAngle;
-  yAngle += yOffset;
-  
   rollRA.addValue(yAngle);
   
   char gyroYString[4];
@@ -270,11 +271,9 @@ String getCompass(void)
 {
   sensors_event_t magEvent; 
   mag.getEvent(&magEvent);
-
-  float Pi = 3.14159;
   
-  float heading = (atan2(magEvent.magnetic.y,magEvent.magnetic.x) * 180) / Pi;
-  heading = heading + 90 + 14;
+  float heading = (atan2(magEvent.magnetic.y,magEvent.magnetic.x) * 180) / PI;
+  heading = heading + 90 + 14; // orientation and declanation
   
   if (heading < 0)
   {
@@ -295,5 +294,15 @@ String getAcceleration(void)
   char accelerationString[4];
   dtostrf( accelerationRA.getStandardDeviation() * 100, 4,0,accelerationString);
   return accelerationString;
+}
+
+float gyroSmooth(float data, float filterVal, float smoothedVal){
+  if(abs(data - smoothedVal) > 1){ // throw out outliers
+    return smoothedVal;
+  }
+
+  smoothedVal = (data * (1 - filterVal)) + (smoothedVal  *  filterVal);
+
+  return smoothedVal;
 }
 
